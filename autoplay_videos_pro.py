@@ -1,246 +1,306 @@
-# -*- coding: utf-8 -*-
-
-'''
-修改日志：
-在login函数中修改了登陆网址，目前是进入第二页，所以添加了进入第二页的语句，if和else语句中都要添加
-v_start和sub_v_start两个参数分别指定初始的大视频和子视频，视视频播放进度，随时可能会手动修改
-增添第二页后，可能的Bug是无法自动在第二页的大视频之间自动循环播放，可能的原因是在当前页点击’返回课程列表‘后，返回的可能是第一页，所以可能需要在for循环的末相应语句后面添加进入第二页语句
-后期要从第一页开始时，要注意注释点login函数的进入第二页语句和for循环末的相应语句
-
-'''
-from selenium import webdriver
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
-
+# -*- coding: UTF-8 -*-
+import getpass
+import sys
 import time
+import traceback
 
-#login函数中，如果需要进入其他页面，比如第二页，则在if和else语句末都加入转页语句，不需要时，记得注释掉
-def login(driver,login_times):
-    '''登陆网站并进入选课中心'''
-    elem=driver.get(r'http://www.zfwx.com/wxqt/')
-    #这里需要休眠15秒，等待浏览器打开
-    time.sleep(15)
-    
-    if login_times>1:
-        elem=driver.find_element_by_xpath(r'/html/body/div[3]/div[1]/div[1]/div/div[2]/div/a')
-        elem.click()
-        time.sleep(5)
-        #调换driver的控制权
-        handles = driver.window_handles
-        driver.switch_to_window(handles[-1])
-        #获取‘听课中心’对象，并点击进入
-        elem = driver.find_element_by_xpath(r'//*[@id="ng-app"]/body/div[3]/div[2]/div[1]/div[2]/ul/li[2]/a')
-        elem.click()                         
-        time.sleep(5)
-        
-        #由于第一页听完，点击进入第二页
-        elem = driver.find_element_by_xpath(r'//*[@id="ng-app"]/body/div[3]/div[2]/div[2]/div/div/div[2]/div[2]/i[2]')
-        elem.click()
-        time.sleep(5)
-        #转换控制权到新的页面
-        #handles = driver.window_handles
-        #driver.switch_to_window(handles[-1])
+from selenium.common import NoSuchElementException, NoAlertPresentException, ElementNotInteractableException, \
+    StaleElementReferenceException, WebDriverException
+from selenium.webdriver import ActionChains
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.wait import WebDriverWait
+
+from constant import *
+from login import Login
+
+
+def main():
+    # 装填参数
+    username = ""
+    password = ""
+
+    if len(sys.argv) >= 3:
+        username = sys.argv[1]
+        password = sys.argv[2]
     else:
-        #获取登录框
-        elem = driver.find_element_by_xpath(r'/html/body/div[3]/div[1]/div[1]/div/div[2]/a[1]')
-        elem.click()
-        time.sleep(3)
-        
-        #获取用户名框对象，并清空后输入用户名
-        elem = driver.find_element_by_xpath(r'//*[@id="username"]')
-        elem.clear()
-        elem.send_keys('your username')
-        time.sleep(2)
-        
-        #获取密码框对象，清空后输入密码
-        elem = driver.find_element_by_xpath(r'//*[@id="password"]')
-        elem.clear()
-        elem.send_keys('your password')
-        time.sleep(2)
-        
-        #获取登录键对象，并点击登录
-        #print('开始登陆...')
-        elem = driver.find_element_by_xpath(r'//*[@id="login-form"]/p[5]/input')
-        elem.click()
-        time.sleep(5)
-        
-        #获取‘听课中心’对象，并点击进入
-        elem = driver.find_element_by_xpath(r'//*[@id="ng-app"]/body/div[3]/div[2]/div[1]/div[2]/ul/li[2]/a')
-        elem.click()
-        time.sleep(5)
-        
-        #由于第一页听完，点击进入第二页
-        elem = driver.find_element_by_xpath(r'//*[@id="ng-app"]/body/div[3]/div[2]/div[2]/div/div/div[2]/div[2]/i[2]')
-        elem.click()
-        time.sleep(5)
+        print("input username")
+        while len(username.strip()) == 0:
+            username = input("Please input your username: ")
+        while len(password.strip()) == 0:
+            password = getpass.getpass("and your password: ")
 
-class alert_or_relogin:
-    def __call__(self,driver):
-        '''用来结合webDriverWait判断是否出现alert或者需要重新登陆'''
-        is_alert=bool(EC.alert_is_present()(driver))
-        if is_alert:
-            return True
-        else:
-            is_invisible=EC.invisibility_of_element_located((By.XPATH,'//*[@id="repeatcourseDialog"]/div/div[3]/a'))(driver)
-            is_visible=not bool(is_invisible)
-            if is_visible:
-                return True
-            else: return False
-#test
-'''v_elems[1].click()
-vl_2=v_elems[1].find_element_by_css_selector("[class='videoList of ng-scope']")
-print(len(vl_2))'''
+    url = DEFAULT_URL
+    try:
+        login = Login(url, username, password)
+        login.login()
 
-#启动浏览器
-driver=webdriver.Chrome()
+        driver = login.driver
 
-#状态变量
-v_start=5 #大视频起始下标
-sub_v_start=0 #子视频起始下标
-login_times=0
-quit_normal=False
-while True:
-    #定义变量以用来判断是否是第一次登录
-    try_times=0
-    login_times+=1
-    
-    #登录并进入听课中心
-    login(driver,login_times)
+        prepare_course(driver)
 
-    #对每个顶层视频进行循环处理
-    for i in range(v_start,10):
-       
-        #获取整个table对象,这里可能返回后但是并非课程列表页面，若此，则触发异常并捕获，在处理器中重新进入选课中心的课程列表页面
+        learn_all_courses(driver)
+    except StaleElementReferenceException:
+        traceback.print_exc()
+
+
+def get_seconds(text):
+    # TODO：后续可以使用时间api直接解析
+    time_array = text.split(":")
+    array_len = len(time_array)
+    second = 0
+    dict = [1, 60, 3600]
+    for i in range(array_len):
         try:
-            table=driver.find_element_by_class_name('courseCont')
-            #获取table内的所有视频顶层逻辑，目前是10个
-            v_elems=table.find_elements_by_id('d1')
-            if len(v_elems)==0:raise Exception
-        except:
-            #获取‘听课中心’对象，并点击进入
-            elem = driver.find_element_by_xpath(r'//*[@id="ng-app"]/body/div[3]/div[2]/div[1]/div[2]/ul/li[2]/a')
-            elem.click()
-            time.sleep(5)
-            table=driver.find_element_by_class_name('courseCont')
-            #获取table内的所有视频顶层逻辑，目前是10个
-            v_elems=table.find_elements_by_id('d1')
-    
-        #获取每个顶层逻辑下的子逻辑
-        v=v_elems[-10+i]
-        v.click() #需要先点击一个子逻辑，之后网页才会出现以下选取对象的元素，不然不会出现子逻辑
-        
-        #休眠8秒等待页面加载
-        time.sleep(8)
-        
-        sub_v=v.find_element_by_class_name('courseVideo')
-        
-        #获取子逻辑下的所有子视频的逻辑
-        videos=sub_v.find_elements_by_css_selector("[class='videoList of ng-scope']")
-        
-        #获取播放对象
-        player=videos[sub_v_start].find_element_by_class_name('player')
-        
-        #点击播放，并让程序休眠播放时长，然后再循环播放下一个视频
-        player.click()
-        time.sleep(3) #如果再次出错，导致alert窗口没有被点击的话，原因可能是这里休眠的时间过长，导致网页alert窗口早就出现，但是程序还未到等待语句，而等待语句在alert窗口出现之后再运行就会失效了
-        
-        #本视频没有听完，从中继续接着听,如果抛出异常，说明是不需要接着听，或者出现了‘重复听课不计入课时’的提示，两种情况都可以交给except中的语句处理
-        
-        #如果因为中途中断，则出现'重复听课不计入课时’的提示，点击确定键
-        try:
-            #print('run here!')
-            #handles = driver.window_handles
-            #driver.switch_to.window(handles[-1])
-            invisib=EC.invisibility_of_element_located((By.XPATH,r'//*[@id="ng-app"]/body/div[3]/div[2]/div[2]/div/div/div[4]/p[3]/a[2]'))(driver)
-        except:
-            invisib=True
-        if not bool(invisib):
-            elem=driver.find_element_by_xpath(r'//*[@id="ng-app"]/body/div[3]/div[2]/div[2]/div/div/div[4]/p[3]/a[2]')           
-            elem.click()
-            #time.sleep(2)
-            handles = driver.window_handles
-            try_times+=1
-            if try_times>1:
-                driver.close()
-            driver.switch_to.window(handles[-1])
-            WebDriverWait(driver,timeout=25,poll_frequency=1).until(EC.alert_is_present())
-            driver.switch_to_alert().accept()
-        #本视频没有听完，从中继续接着听
-        else:
-            #获取所有句柄，并关闭当前页面，然后把driver的控制对象转换成新出现的页面        
-            try_times+=1
-            if try_times>1:
-                driver.close()
-            handles = driver.window_handles
-            driver.switch_to.window(handles[-1])
+            time_parse = int(time_array[array_len - i - 1])
+            second += time_parse * dict[i]
+        except ValueError:
+            print("解析时间失败")
+            second = -1
+    return second
+
+
+def learn_all_courses(driver):
+    print("learn_all_courses course begin")
+    try:
+        course_list = driver.find_elements(By.CSS_SELECTOR, "[class='courseDetail of ng-scope']")
+        course_num = len(course_list)
+        print("当前页面的课程数{}".format(course_num))
+
+        course_index = 0
+
+        while course_index < course_num:
             try:
-                WebDriverWait(driver,timeout=20,poll_frequency=1).until(EC.alert_is_present())
-                driver.switch_to_alert().accept()
-            except:
-                print('if the script exits, here maybe wrong, line 206!')
-                #WebDriverWait(driver,timeout=20,poll_frequency=1).until(EC.alert_is_present())
-        
-        #捕获弹出框，并确认运行flash
-        #WebDriverWait(driver,timeout=60,poll_frequency=10).until(EC.alert_is_present())
-        #driver.switch_to_alert().accept()
-        bool_flag=False
-        while sub_v_start<len(videos):
-            #test_1=bool(driver.find_elements_by_xpath(r'//*[@id="repeatcourseDialog"]/div/div[3]/a'))
-            #test_2=EC.alert_is_present()(driver)
-            locator=(By.XPATH,'//*[@id="repeatcourseDialog"]/div/div[3]/a')
-            bool_test_1=alert_or_relogin()(driver)
-            try:
-                WebDriverWait(driver,timeout=100*60,poll_frequency=5).until(alert_or_relogin())
-            except:
-                print('Here is wrong! line 229')
-                bool_test_2=alert_or_relogin()(driver)
-            #test_3=bool(driver.find_elements_by_xpath(r'//*[@id="repeatcourseDialog"]/div/div[3]/a'))
-            #test_4=EC.alert_is_present()(driver)
-            time.sleep(5)
-            
-            if EC.alert_is_present()(driver):
-                #如果是该视频列表下的最后一个视频，则在弹窗中点击取消
-                if sub_v_start==len(videos)-1:
-                    driver.switch_to_alert().dismiss()
-                    time.sleep(5)
-                    if not bool(EC.invisibility_of_element_located(locator)(driver)): #如何可见，即如果出现了重新登陆框的提示
-                        #if EC.presence_of_element_located(locator)(driver): #False是等待被写入的条件判断句
-                        #driver.switch_to.window(handles[0])
-                        v_start=i
-                        elem=driver.find_element_by_xpath(r'//*[@id="repeatcourseDialog"]/div/div[3]/a')
-                        elem.click()
-                        time.sleep(5)
-                        bool_flag=True
-                        break
-                    else:sub_v_start+=1
-                        #break
-                else:
-                    driver.switch_to_alert().accept()
-                    time.sleep(5)
-                    sub_v_start +=1
-            
-            else: #如果出现需要重新登陆，则跳出两个循环重新登录
-                #driver.switch_to.window(handles[0])
-                v_start=i
-                elem=driver.find_element_by_xpath(r'//*[@id="repeatcourseDialog"]/div/div[3]/a')
-                elem.click()
-                time.sleep(5)
-                bool_flag=True
-                break
-        if bool_flag:
-            driver.switch_to.window(handles[0])
-            quit_normal=False
+                time.sleep(2)
+                current_course_detail = driver.find_element(By.CSS_SELECTOR, "[class='courseDetail of ng-scope']")
+                time.sleep(2)
+                try:
+                    current_course_detail = driver.find_elements(By.CSS_SELECTOR, "[class='courseDetail of ng-scope']")[
+                        course_index]
+                except IndexError:
+                    print("current_course_detail is {}, courseIndex is {}".format(current_course_detail, course_index))
+                current_course_detail.click()
+                time.sleep(1)
+                try:
+                    video_list = current_course_detail.find_elements(By.CSS_SELECTOR,
+                                                                     "[class='videoList of ng-scope']")
+                    video_num = len(video_list)
+                    video_index = 0
+                    while video_index < video_num:
+                        video = video_list[video_index]
+                        video_title = video.find_element(By.CSS_SELECTOR, "[class='className ng-binding']")
+                        video_player = video.find_element(By.CSS_SELECTOR, "[class='player']")
+                        video_progress = video.find_element(By.CLASS_NAME, 'progress')
+                        video_timer = video.find_element(By.CSS_SELECTOR, "[class='timer ng-binding']")
+
+                        print("current video index {}, title {} progress {}, 时长 {} 分钟"
+                              .format(str(video_index), video_title.text, video_progress.text,
+                                      video_timer.text))
+                        if video_progress.text == "0%":
+                            print("未开始, 点击播放开始学习")
+                        elif video_progress.text == "100%":
+                            video_index += 1
+                            print("已完成, 跳过")
+                            continue
+                        else:
+                            print("正在学习，点击播放继续学习")
+                        # 点击播放按钮
+                        video_player.click()
+                        # 切换控制到新打开到播放页面
+                        handles = driver.window_handles
+                        driver.switch_to.window(handles[-1])
+
+                        while True:
+                            print("进入死循环播放")
+                            time.sleep(3)
+                            try:
+                                # 是否继续上次听课进度的弹窗(可能出现弹窗也可能不出现，但如果出现就必须先处理弹窗，
+                                # 这里默认去处理下，没有弹窗也没关系，可以正常继续执行）
+                                handle_alert(driver)
+                            except NoAlertPresentException:
+                                print("expected alert to continue play, but not found!")
+                            except WebDriverException:
+                                print("WebDriverException")
+                            # 获取视频播放的当前时长(current_time)和视频总时长(duration)
+                            time.sleep(3)
+                            if check_element_exists(driver, By.CLASS_NAME, 'content-cL'):
+                                hoverable = driver.find_element(By.CLASS_NAME, 'content-cL')
+                                ActionChains(driver) \
+                                    .move_to_element(hoverable) \
+                                    .perform()
+                            else:
+                                print("content-CL not found!")
+                            time.sleep(1)
+                            duration_div = driver.find_element(By.CLASS_NAME, 'prism-time-display')
+                            current_time = duration_div.find_element(By.CLASS_NAME, "current-time")
+                            duration = duration_div.find_element(By.CLASS_NAME, "duration")
+                            video_duration = get_seconds(duration.text) - get_seconds(current_time.text)
+                            if get_seconds(duration.text) == -1:
+                                video_duration = 3600 * 2
+                                print("set max video duration 3600 * 2 seconds")
+                            print("current time is {}, duration is {}, video_duration is {}".format(current_time.text,
+                                                                                                    duration.text,
+                                                                                                    video_duration))
+                            time.sleep(3)
+                            try:
+                                double_rate(driver)
+                                video_duration = video_duration / 2
+                            except ElementNotInteractableException:
+                                print("speed setting failed")
+                            video_duration += 10
+                            try:
+                                # 休眠视频播放时间(video_duration),期间不断检测是否有已放完的弹窗
+                                WebDriverWait(driver, timeout=video_duration, poll_frequency=5).until(
+                                    AlertOrReLogin())
+                            except:
+                                AlertOrReLogin()(driver)
+                            # time.sleep(10)
+                            if EC.alert_is_present()(driver):
+                                print("出现了连播弹窗")
+                                if video_index < video_num - 1:
+                                    print("继续播放下一讲")
+                                    driver.switch_to.alert.accept()
+                                    video_index += 1
+                                else:
+                                    print("最后一个视频了，取消")
+                                    driver.switch_to.alert.dismiss()
+                                    video_index += 1
+                                    # 切换控制回之前的页面
+                                    handles = driver.window_handles
+                                    driver.close()
+                                    driver.switch_to.window(handles[0])
+                                    break
+                            else:
+                                print("未出现连播弹窗，video_index 加 1 后跳出死循环")
+                                video_index += 1
+                                break
+                except NoSuchElementException:
+                    print("获取视频失败{}".format(course_index))
+            except NoSuchElementException:
+                print("获取课程失败, course_index is {}".format(course_index))
+            course_index += 1
+    except NoSuchElementException:
+        print("获取课程列表失败")
+    print("learn_all_courses course end")
+
+
+def double_rate(driver):
+    time.sleep(1)
+    if check_element_exists(driver, By.CLASS_NAME, 'content-cL'):
+        hoverable = driver.find_element(By.CLASS_NAME, 'content-cL')
+        ActionChains(driver) \
+            .move_to_element(hoverable) \
+            .perform()
+    else:
+        print("content-CL not found!")
+    if check_element_exists(driver, By.CLASS_NAME, 'rate-components'):
+        time.sleep(1)
+        elem = driver.find_element(By.CLASS_NAME, 'rate-components')
+        elem.click()
+        time.sleep(1)
+        if check_element_exists(driver, By.CLASS_NAME, 'current-rate'):
+            time.sleep(1)
+            elem = driver.find_element(By.CLASS_NAME, 'current-rate')
+            elem.click()
+            time.sleep(1)
+        if check_element_exists(driver, By.CLASS_NAME, 'rate-list'):
+            time.sleep(1)
+            elem = driver.find_element(By.CLASS_NAME, 'rate-list')
+            speed = elem.find_elements(By.TAG_NAME, 'li')
+            speed[0].click()
+
+
+def handle_alert(driver):
+    # TODO: how to locate alert
+    alert = driver.switch_to.alert  # 切换到alert
+    print('alert text : ' + alert.text)  # 打印alert的文本
+    alert.accept()  # 点击alert的【确认】按钮
+
+
+def pause_for_debug():
+    while True:
+        word = input("continue or not?")
+        if word.strip() == 'y':
             break
-        #返回课程列表
-        sub_v_start=0  #初始化子视频索引，因为下一个大视频一定从0开始
-        elem=driver.find_element_by_xpath('/html/body/div[1]/a[1]')
+
+
+def check_element_exists(driver, by=By.ID, value=None):
+    try:
+        driver.find_element(by, value)
+    except NoSuchElementException:
+        print('not found {}'.format(value))
+        return False
+    return True
+
+
+def prepare_course(driver):
+    print("prepare course begin")
+    # 进入课程列表页面，默认为全部标签到第一页
+    try:
+        elem = driver.find_element(By.XPATH, XPATH_COURSE_PAGE_HREF)
         elem.click()
-        time.sleep(5)
-        quit_normal=True
-    #如果视频播放完毕，则跳出循环
-    if quit_normal==True:
-        break
-    #双重保险，防止判断条件出错，陷入死循环
-    #break
-    
+        # flag 用来指示标签页
+        #   0 代表默认全部标签，不作切换
+        #   1 代表切换到正听标签
+        #   2 代表切换到未听标签
+        #   3 代表切换到已完成标签
+        #   4 代表重新切换回全部标签
+        flag = 1
+
+        next_step = 0
+
+        if flag == 1:
+            # 进入正听标签
+            try:
+                elem = driver.find_element(By.XPATH, XPATH_COURSE_PAGE_LISTENING_TAB)
+                elem.click()
+            except NoSuchElementException:
+                print("进入正听标签 失败")
+        elif flag == 2:
+            # 进入未听标签
+            try:
+                elem = driver.find_element(By.XPATH, XPATH_COURSE_PAGE_UNFINISHED_TAB)
+                elem.click()
+            except NoSuchElementException:
+                print("进入未听标签 失败")
+        elif flag == 3:
+            # 进入已完成标签
+            try:
+                elem = driver.find_element(By.XPATH, XPATH_COURSE_PAGE_FINISHED_TAB)
+                elem.click()
+            except NoSuchElementException:
+                print("进入已完成标签 失败")
+        elif flag == 4:
+            # 重新进入全部标签
+            try:
+                elem = driver.find_element(By.XPATH, XPATH_COURSE_PAGE_ALL_TAB)
+                elem.click()
+            except NoSuchElementException:
+                print("进入全部标签 失败")
+
+        # 下一页
+        try:
+            for i in range(0, next_step):
+                page_num = driver.find_element(By.CLASS_NAME, 'skip')
+                next_button = page_num.find_element(By.CLASS_NAME, 'skipDown')
+                next_button.click()
+                time.sleep(1)
+            print("进入下一页触发{}次".format(next_step))
+        except NoSuchElementException:
+            print("下一页进入失败")
+    except NoSuchElementException:
+        print("进入课程列表【我要听课】页面失败")
+    print("prepare course end")
+
+
+class AlertOrReLogin:
+    def __call__(self, driver):
+        # 用来结合webDriverWait判断是否出现alert
+        is_alert = bool(EC.alert_is_present()(driver))
+        if is_alert:
+            print("AlertOrReLogin call {}".format(is_alert))
+        return is_alert
+
+
+if __name__ == '__main__':
+    main()
